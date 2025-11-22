@@ -9,7 +9,7 @@ load_dotenv()
 
 USERNAME = os.getenv("IG_USERNAME")
 PASSWORD = os.getenv("IG_PASSWORD")
-PROXY = os.getenv("PROXY", "").strip()
+PROXY_RAW = os.getenv("PROXY", "").strip()  # اصلی رو نگه می‌داریم
 SESSION_FILE = os.getenv("SESSION_FILE", "session.json")
 CHECK_INTERVAL = 180  # هر 3 دقیقه چک
 
@@ -20,9 +20,42 @@ if not USERNAME or not PASSWORD:
 cl = Client()
 cl.delay_range = [1.0, 5.0]
 
-if PROXY and PROXY.strip():
-    cl.set_proxy(PROXY)
-    print(f"پراکسی فعال: {PROXY}")
+# ========== پشتیبانی 100% از همه نوع پراکسی (بدون کرش) ==========
+PROXY = PROXY_RAW.lower()
+
+if PROXY:
+    try:
+        # 1. فرمت‌های استاندارد (socks5://, http://, ...)
+        if PROXY.startswith(('http://', 'https://', 'socks4://', 'socks5://', 'socks5h://')):
+            final_proxy = PROXY
+            print(f"پراکسی فعال: {PROXY_RAW}")
+
+        # 2. فرمت ساده ایرانی: ip:port یا ip:port:user:pass
+        else:
+            parts = PROXY.split(':')
+            if len(parts) == 2:  # ip:port
+                ip, port = parts
+                final_proxy = f"http://{ip}:{port}"
+            elif len(parts) == 4:  # ip:port:user:pass
+                ip, port, user, pwd = parts
+                final_proxy = f"http://{user}:{pwd}@{ip}:{port}"
+            else:
+                print("فرمت پراکسی ناشناخته — بدون پراکسی ادامه می‌ده")
+                final_proxy = None
+
+            if 'final_proxy' in locals():
+                print(f"پراکسی فعال (فرمت ساده): {final_proxy}")
+
+        # اعمال پراکسی به instagrapi
+        if 'final_proxy' in locals() and final_proxy:
+            cl.set_proxy(final_proxy)
+
+    except Exception as e:
+        print(f"خطا در تنظیم پراکسی (نادیده گرفته شد): {e}")
+else:
+    print("بدون پراکسی")
+
+# =====================================================================
 
 def solve_challenge():
     print("چلنج اومد! کد تأیید به ایمیل یا شماره تلفن ارسال شد")
@@ -32,7 +65,6 @@ def solve_challenge():
         if code.isdigit() and len(code) == 6:
             break
         print("کد باید ۶ رقم باشه! دوباره وارد کن")
-
     try:
         result = cl.challenge_resolve(code=int(code))
         if result:
@@ -56,11 +88,9 @@ def login_once():
         else:
             cl.login(USERNAME, PASSWORD)
             print(f"[{datetime.now().strftime('%H:%M:%S')}] لاگین اولیه موفق")
-
         cl.dump_settings(SESSION_FILE)
         print(f"[{datetime.now().strftime('%H:%M:%S')}] session.json ذخیره شد")
         return True
-
     except ChallengeRequired:
         print("چلنج امنیتی تشخیص داده شد!")
         if solve_challenge():
@@ -68,7 +98,6 @@ def login_once():
         else:
             print("چلنج حل نشد — برنامه بسته میشه")
             exit(1)
-
     except Exception as e:
         print(f"لاگین ناموفق: {e}")
         return False
@@ -80,7 +109,7 @@ def is_session_alive():
     except LoginRequired:
         return False
     except:
-        return True  # هر خطای دیگه = سشن هنوز زنده است
+        return True
 
 # ================ شروع برنامه ================
 print("="*75)
@@ -101,6 +130,6 @@ while True:
     if not is_session_alive():
         print("سشن مرده است! دوباره لاگین...")
         if not login_once():
-            time.sleep(600)  # ۱۰ دقیقه صبر
+            time.sleep(600)
     else:
         print("سشن زنده است")
